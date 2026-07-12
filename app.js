@@ -4,11 +4,13 @@
   const STORAGE_PREFIX = "wd:answer:";
 
   const state = {
-    data: null,
+    data: null, // {categories: [...]}
+    banks: {}, // categoryId -> 問題配列（遅延ロード）
     activeCategoryId: null,
     selectedItemId: null, // null = 今日のおすすめを表示
     mode: "problem", // "problem" | "browse"
     browseFilter: "all", // "all" | "none" | "answered" | "insight"
+    sceneFilter: "all", // "all" | "日常" | "戦闘" | "シリアス"
   };
 
   const categoryNav = document.getElementById("categoryNav");
@@ -22,7 +24,7 @@
   async function init() {
     try {
       // ユニークなクエリでブラウザ・CDN両方のキャッシュを迂回する
-      const res = await fetch("data/questions.json?_=" + Date.now(), { cache: "no-store" });
+      const res = await fetch("data/categories.json?_=" + Date.now(), { cache: "no-store" });
       state.data = await res.json();
     } catch (err) {
       problemView.innerHTML = "<p>問題データの読み込みに失敗しました。ローカルで開いている場合は簡易サーバー経由（例: python -m http.server）でアクセスしてください。</p>";
@@ -39,6 +41,19 @@
       categoryNav.hidden = !showingLog;
       if (!growthLogView.hidden) renderGrowthLog();
     });
+  }
+
+  // カテゴリ別バンクの遅延ロード（100問規模でも初回表示を軽く保つ）
+  async function ensureBank(categoryId) {
+    if (!state.banks[categoryId]) {
+      try {
+        const res = await fetch(`data/bank-${categoryId}.json?_=` + Date.now(), { cache: "no-store" });
+        state.banks[categoryId] = await res.json();
+      } catch (err) {
+        state.banks[categoryId] = [];
+      }
+    }
+    return state.banks[categoryId];
   }
 
   function renderCategoryNav() {
@@ -71,7 +86,7 @@
   }
 
   function pickRecommendedItem(categoryId) {
-    const bank = state.data.banks[categoryId] || [];
+    const bank = state.banks[categoryId] || [];
     if (bank.length === 0) return null;
     const dateStr = getJSTDateString();
 
@@ -254,14 +269,14 @@
     return row;
   }
 
-  function renderProblem() {
+  async function renderProblem() {
     growthLogView.hidden = true;
     problemView.hidden = false;
     categoryNav.hidden = false;
     problemView.innerHTML = "";
 
     const cat = state.data.categories.find((c) => c.id === state.activeCategoryId);
-    const bank = state.data.banks[cat.id] || [];
+    const bank = await ensureBank(cat.id);
 
     if (bank.length === 0) {
       problemView.appendChild(el("p", {}, "このカテゴリにはまだ問題が登録されていません。"));
@@ -284,6 +299,11 @@
     problemView.appendChild(
       el("h2", {}, `${cat.label}｜${isToday ? "今日の問題" : "問題を選択中"}`)
     );
+    if (activeItem.episode) {
+      problemView.appendChild(
+        el("p", { class: "hint" }, [activeItem.episode, activeItem.scene].filter(Boolean).join("｜"))
+      );
+    }
 
     switch (cat.kind) {
       case "checklist":
@@ -336,14 +356,37 @@
     }
     problemView.appendChild(filterRow);
 
-    const visible = entries.filter((e) => state.browseFilter === "all" || e.status === state.browseFilter);
+    // シーン種別（日常/戦闘/シリアス）の絞り込み。タグ付き問題がある場合のみ表示
+    const scenes = [...new Set(bank.map((i) => i.scene).filter(Boolean))];
+    if (scenes.length > 1) {
+      const sceneRow = el("div", { class: "filter-row" });
+      for (const key of ["all", ...scenes]) {
+        const chip = el(
+          "button",
+          { type: "button", class: "category-chip filter-chip", "aria-pressed": String(state.sceneFilter === key) },
+          key === "all" ? "全シーン" : key
+        );
+        chip.addEventListener("click", () => {
+          state.sceneFilter = key;
+          renderProblem();
+        });
+        sceneRow.appendChild(chip);
+      }
+      problemView.appendChild(sceneRow);
+    }
+
+    const visible = entries.filter(
+      (e) =>
+        (state.browseFilter === "all" || e.status === state.browseFilter) &&
+        (state.sceneFilter === "all" || e.item.scene === state.sceneFilter)
+    );
     const list = el("div", { class: "growth-log-list" });
     if (visible.length === 0) {
       list.appendChild(el("p", { class: "hint" }, "この条件に該当する問題はありません。"));
     }
     for (const { item, saved } of visible) {
       const isRecommended = item.id === recommendedItemId;
-      const metaText = [isRecommended ? "今日のおすすめ" : null, statusLabel(saved)]
+      const metaText = [isRecommended ? "今日のおすすめ" : null, statusLabel(saved), item.scene, item.episode]
         .filter(Boolean)
         .join("｜");
       const row = el("button", { type: "button", class: "growth-log-item browse-row" }, [
@@ -479,8 +522,10 @@
     return text.length > 80 ? text.slice(0, 80) + "…" : text;
   }
 
-  function renderGrowthLog() {
+  async function renderGrowthLog() {
     growthLogList.innerHTML = "";
+    // 問題サマリ表示のため全カテゴリのバンクを読み込む
+    await Promise.all(state.data.categories.map((c) => ensureBank(c.id)));
     const entries = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
@@ -499,7 +544,7 @@
       const categoryId = rest.slice(0, sep);
       const itemId = rest.slice(sep + 1);
       const cat = state.data.categories.find((c) => c.id === categoryId);
-      const bankItem = (state.data.banks[categoryId] || []).find((it) => it.id === itemId);
+      const bankItem = (state.banks[categoryId] || []).find((it) => it.id === itemId);
       entries.push({
         categoryId,
         itemId,

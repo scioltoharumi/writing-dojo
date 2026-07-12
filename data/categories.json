@@ -1,0 +1,30 @@
+{
+  "note": "問題バンクは data/bank-{category}.json に分割格納。生成の経緯は 00_admin/steering/20260712-writing-dojo/ を参照。",
+  "categories": [
+    {
+      "id": "reverse",
+      "label": "シーン解剖",
+      "kind": "checklist"
+    },
+    {
+      "id": "multirewrite",
+      "label": "多重リライト",
+      "kind": "triple"
+    },
+    {
+      "id": "constraint",
+      "label": "制約ドリル",
+      "kind": "single"
+    },
+    {
+      "id": "lens",
+      "label": "音読・レンズ推敲",
+      "kind": "single"
+    },
+    {
+      "id": "distance",
+      "label": "カメラ距離",
+      "kind": "single"
+    }
+  ]
+}
