@@ -21,7 +21,8 @@
 
   async function init() {
     try {
-      const res = await fetch("data/questions.json", { cache: "no-store" });
+      // ユニークなクエリでブラウザ・CDN両方のキャッシュを迂回する
+      const res = await fetch("data/questions.json?_=" + Date.now(), { cache: "no-store" });
       state.data = await res.json();
     } catch (err) {
       problemView.innerHTML = "<p>問題データの読み込みに失敗しました。ローカルで開いている場合は簡易サーバー経由（例: python -m http.server）でアクセスしてください。</p>";

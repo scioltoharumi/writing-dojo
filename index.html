@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Writing Dojo — 小説執筆力トレーニング</title>
-<link rel="stylesheet" href="style.css?v=20260712-2">
+<link rel="stylesheet" href="style.css?v=20260712-2" id="baseStylesheet">
 </head>
 <body>
 <header class="app-header">
@@ -28,8 +28,35 @@
     <a href="https://ncode.syosetu.com/n9669bk/" target="_blank" rel="noopener">https://ncode.syosetu.com/n9669bk/</a>）
     を題材にしています。引用範囲についてご指摘があればご連絡ください。
   </p>
+  <p><span id="appVersion"></span></p>
 </footer>
 
-<script src="app.js?v=20260712-2" defer></script>
+<script>
+// キャッシュ迂回ブートストラップ:
+// HTML自体が古いキャッシュでも、version.json を毎回オリジンから取得し、
+// その番号付きURLで最新の app.js / style.css を読み込む。
+(function () {
+  function load(version) {
+    var link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "style.css?v=" + encodeURIComponent(version);
+    document.head.appendChild(link);
+    var script = document.createElement("script");
+    script.src = "app.js?v=" + encodeURIComponent(version);
+    document.body.appendChild(script);
+  }
+  fetch("version.json?_=" + Date.now(), { cache: "no-store" })
+    .then(function (res) { return res.json(); })
+    .then(function (json) {
+      load(json.version);
+      var el = document.getElementById("appVersion");
+      if (el) el.textContent = "version " + json.version;
+    })
+    .catch(function () {
+      // 取得失敗時（オフライン等）はキャッシュ済みでも動くようそのまま読み込む
+      load("fallback");
+    });
+})();
+</script>
 </body>
 </html>
