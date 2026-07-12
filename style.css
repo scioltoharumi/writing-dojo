@@ -101,6 +101,22 @@ html, body {
   margin: 0 auto;
 }
 
+.view-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.growth-log-item.browse-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
 .problem-view h2 {
   font-size: 1.05rem;
   margin: 16px 0 8px;
@@ -124,6 +140,10 @@ html, body {
   padding: 10px 14px;
   margin: 0 0 16px;
   border-radius: 0 var(--radius) var(--radius) 0;
+}
+.quote-block p,
+.model-answer-set p {
+  white-space: pre-line;
 }
 .quote-block .source {
   display: block;

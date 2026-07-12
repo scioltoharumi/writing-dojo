@@ -6,6 +6,8 @@
   const state = {
     data: null,
     activeCategoryId: null,
+    selectedItemId: null, // null = 今日のおすすめを表示
+    mode: "problem", // "problem" | "browse"
   };
 
   const categoryNav = document.getElementById("categoryNav");
@@ -47,6 +49,8 @@
       btn.setAttribute("aria-pressed", String(cat.id === state.activeCategoryId));
       btn.addEventListener("click", () => {
         state.activeCategoryId = cat.id;
+        state.selectedItemId = null;
+        state.mode = "problem";
         renderCategoryNav();
         renderProblem();
       });
@@ -64,38 +68,50 @@
     return Math.floor(new Date(dateStr + "T00:00:00Z").getTime() / 86400000);
   }
 
-  function pickTodayItem(categoryId) {
+  function pickRecommendedItem(categoryId) {
     const bank = state.data.banks[categoryId] || [];
     if (bank.length === 0) return null;
     const dateStr = getJSTDateString();
-    // バンクを一巡させるため、擬似ランダムではなく日数ベースの周回で選ぶ
+    // バンクを一巡させるため、日数ベースの周回で「今日のおすすめ」を選ぶ
     const days = daysSinceEpoch(dateStr);
     const idx = ((days % bank.length) + bank.length) % bank.length;
     return { item: bank[idx], dateStr };
   }
 
-  function storageKey(categoryId, dateStr) {
-    return `${STORAGE_PREFIX}${categoryId}:${dateStr}`;
+  function storageKey(categoryId, itemId) {
+    return `${STORAGE_PREFIX}${categoryId}:${itemId}`;
   }
 
-  function loadSaved(categoryId, dateStr) {
+  function loadSaved(categoryId, itemId) {
     try {
-      const raw = localStorage.getItem(storageKey(categoryId, dateStr));
+      const raw = localStorage.getItem(storageKey(categoryId, itemId));
       return raw ? JSON.parse(raw) : {};
     } catch (err) {
       return {};
     }
   }
 
-  function saveState(categoryId, dateStr, patch) {
-    const current = loadSaved(categoryId, dateStr);
-    const next = { ...current, ...patch };
+  function saveState(categoryId, itemId, patch) {
+    const current = loadSaved(categoryId, itemId);
+    const next = { ...current, ...patch, updatedAt: getJSTDateString() };
     try {
-      localStorage.setItem(storageKey(categoryId, dateStr), JSON.stringify(next));
+      localStorage.setItem(storageKey(categoryId, itemId), JSON.stringify(next));
     } catch (err) {
       /* localStorage不可時は無視（保存はベストエフォート） */
     }
     return next;
+  }
+
+  function hasAnyAnswer(saved) {
+    if (typeof saved.answer === "string" && saved.answer.trim()) return true;
+    if (saved.answers && Object.values(saved.answers).some((v) => v && v.trim())) return true;
+    return false;
+  }
+
+  function statusLabel(saved) {
+    if (saved.insight && saved.insight.trim()) return "気づきメモ済み";
+    if (hasAnyAnswer(saved)) return "回答あり";
+    return "未着手";
   }
 
   function el(tag, attrs = {}, children = []) {
@@ -120,6 +136,11 @@
     ]);
   }
 
+  function itemSummaryText(item) {
+    const raw = item.prompt || item.situation || item.context || item.lens || item.sourceSentence || "";
+    return raw.length > 36 ? raw.slice(0, 36) + "…" : raw;
+  }
+
   const TRIPLE_LABELS = {
     a: "(a) 一人称・内面過多",
     b: "(b) 三人称・カメラ描写のみ",
@@ -137,6 +158,9 @@
         if (set.b !== undefined) bodyChildren.push(el("p", {}, `${TRIPLE_LABELS.b}: ${set.b}`));
         if (set.c !== undefined) bodyChildren.push(el("p", {}, `${TRIPLE_LABELS.c}: ${set.c}`));
       }
+      if (set.source) {
+        bodyChildren.push(el("span", { class: "source" }, `出典: ${set.source}`));
+      }
       return el("div", { class: "model-answer-set" }, [
         el("h3", {}, set.label ? `回答例（${set.label}）` : "回答例"),
         ...bodyChildren,
@@ -144,14 +168,14 @@
     });
   }
 
-  function insightField(categoryId, dateStr, saved) {
+  function insightField(categoryId, itemId, saved) {
     const wrapper = el("div", { class: "answer-field" }, [
       el("label", { for: "insight" }, "気づきメモ（自分に欠けていた技術を一言で）"),
     ]);
     const textarea = el("textarea", { id: "insight", rows: "2" });
     textarea.value = saved.insight || "";
     textarea.addEventListener("input", () => {
-      saveState(categoryId, dateStr, { insight: textarea.value });
+      saveState(categoryId, itemId, { insight: textarea.value });
     });
     wrapper.appendChild(textarea);
     return wrapper;
@@ -166,47 +190,109 @@
     return btn;
   }
 
+  function goToday() {
+    state.selectedItemId = null;
+    state.mode = "problem";
+    renderProblem();
+  }
+
+  function goBrowse() {
+    state.mode = "browse";
+    renderProblem();
+  }
+
+  function viewToggleRow(bankLength, isToday) {
+    const row = el("div", { class: "view-toggle" });
+    if (!isToday) {
+      const backBtn = el("button", { type: "button", class: "ghost-button" }, "今日のおすすめに戻る");
+      backBtn.addEventListener("click", goToday);
+      row.appendChild(backBtn);
+    }
+    const browseBtn = el("button", { type: "button", class: "ghost-button" }, `全問題を見る（${bankLength}問）`);
+    browseBtn.addEventListener("click", goBrowse);
+    row.appendChild(browseBtn);
+    return row;
+  }
+
   function renderProblem() {
     growthLogView.hidden = true;
     problemView.hidden = false;
     categoryNav.hidden = false;
-
-    const cat = state.data.categories.find((c) => c.id === state.activeCategoryId);
-    const picked = pickTodayItem(cat.id);
     problemView.innerHTML = "";
 
-    if (!picked) {
+    const cat = state.data.categories.find((c) => c.id === state.activeCategoryId);
+    const bank = state.data.banks[cat.id] || [];
+
+    if (bank.length === 0) {
       problemView.appendChild(el("p", {}, "このカテゴリにはまだ問題が登録されていません。"));
       return;
     }
 
-    const { item, dateStr } = picked;
-    const saved = loadSaved(cat.id, dateStr);
-    if (saved.itemId !== item.id) {
-      saveState(cat.id, dateStr, { itemId: item.id });
+    const recommended = pickRecommendedItem(cat.id);
+
+    if (state.mode === "browse") {
+      renderBrowseList(cat, bank, recommended.item.id);
+      return;
     }
 
-    problemView.appendChild(el("h2", {}, `${cat.label}｜今日の問題`));
+    const item = state.selectedItemId ? bank.find((i) => i.id === state.selectedItemId) : null;
+    const activeItem = item || recommended.item;
+    const isToday = activeItem.id === recommended.item.id;
+    const saved = loadSaved(cat.id, activeItem.id);
+
+    problemView.appendChild(viewToggleRow(bank.length, isToday));
+    problemView.appendChild(
+      el("h2", {}, `${cat.label}｜${isToday ? "今日の問題" : "問題を選択中"}`)
+    );
 
     switch (cat.kind) {
       case "memo":
-        renderMemo(cat, item, dateStr, saved);
+        renderMemo(cat, activeItem, saved);
         break;
       case "checklist":
-        renderChecklist(cat, item, dateStr, saved);
+        renderChecklist(cat, activeItem, saved);
         break;
       case "triple":
-        renderTriple(cat, item, dateStr, saved);
+        renderTriple(cat, activeItem, saved);
         break;
       case "single":
-        renderSingle(cat, item, dateStr, saved);
+        renderSingle(cat, activeItem, saved);
         break;
       default:
         problemView.appendChild(el("p", {}, "未対応の問題形式です。"));
     }
   }
 
-  function renderMemo(cat, item, dateStr, saved) {
+  function renderBrowseList(cat, bank, recommendedItemId) {
+    const backRow = el("div", { class: "view-toggle" });
+    const backBtn = el("button", { type: "button", class: "ghost-button" }, "← 今日の問題に戻る");
+    backBtn.addEventListener("click", goToday);
+    backRow.appendChild(backBtn);
+    problemView.appendChild(backRow);
+    problemView.appendChild(el("h2", {}, `${cat.label}｜全${bank.length}問`));
+
+    const list = el("div", { class: "growth-log-list" });
+    for (const item of bank) {
+      const saved = loadSaved(cat.id, item.id);
+      const isRecommended = item.id === recommendedItemId;
+      const metaText = [isRecommended ? "今日のおすすめ" : null, statusLabel(saved)]
+        .filter(Boolean)
+        .join("｜");
+      const row = el("button", { type: "button", class: "growth-log-item browse-row" }, [
+        el("div", { class: "meta" }, metaText),
+        el("div", {}, itemSummaryText(item)),
+      ]);
+      row.addEventListener("click", () => {
+        state.selectedItemId = item.id;
+        state.mode = "problem";
+        renderProblem();
+      });
+      list.appendChild(row);
+    }
+    problemView.appendChild(list);
+  }
+
+  function renderMemo(cat, item, saved) {
     problemView.appendChild(el("p", { class: "prompt-text" }, item.prompt));
     problemView.appendChild(
       el("ul", { class: "key-points" }, item.keyPoints.map((k) => el("li", {}, k)))
@@ -215,7 +301,7 @@
     const answerField = el("div", { class: "answer-field" }, [el("label", {}, "自分の再現文")]);
     const textarea = el("textarea", { rows: "8" });
     textarea.value = saved.answer || "";
-    textarea.addEventListener("input", () => saveState(cat.id, dateStr, { answer: textarea.value }));
+    textarea.addEventListener("input", () => saveState(cat.id, item.id, { answer: textarea.value }));
     answerField.appendChild(textarea);
     problemView.appendChild(answerField);
 
@@ -228,8 +314,8 @@
     const doReveal = () => {
       revealArea.appendChild(quoteBlock(item.reveal.quote));
       revealArea.appendChild(el("div", { class: "explanation" }, item.reveal.explanation));
-      revealArea.appendChild(insightField(cat.id, dateStr, saved));
-      saveState(cat.id, dateStr, { revealed: true });
+      revealArea.appendChild(insightField(cat.id, item.id, saved));
+      saveState(cat.id, item.id, { revealed: true });
     };
 
     if (saved.revealed) {
@@ -240,7 +326,7 @@
     problemView.appendChild(revealArea);
   }
 
-  function renderChecklist(cat, item, dateStr, saved) {
+  function renderChecklist(cat, item, saved) {
     problemView.appendChild(quoteBlock(item.quote));
     if (item.context) problemView.appendChild(el("p", { class: "prompt-text" }, item.context));
 
@@ -251,7 +337,7 @@
       textarea.value = answers[i] || "";
       textarea.addEventListener("input", () => {
         const next = { ...answers, [i]: textarea.value };
-        saveState(cat.id, dateStr, { answers: next });
+        saveState(cat.id, item.id, { answers: next });
       });
       field.appendChild(textarea);
       problemView.appendChild(field);
@@ -264,8 +350,8 @@
         revealArea.appendChild(el("p", {}, `${item.checklistQuestions[i]}: ${a}`));
       });
       revealArea.appendChild(el("div", { class: "explanation" }, item.explanation));
-      revealArea.appendChild(insightField(cat.id, dateStr, saved));
-      saveState(cat.id, dateStr, { revealed: true });
+      revealArea.appendChild(insightField(cat.id, item.id, saved));
+      saveState(cat.id, item.id, { revealed: true });
     };
 
     if (saved.revealed) doReveal();
@@ -273,7 +359,7 @@
     problemView.appendChild(revealArea);
   }
 
-  function renderTriple(cat, item, dateStr, saved) {
+  function renderTriple(cat, item, saved) {
     problemView.appendChild(el("p", { class: "prompt-text" }, item.situation));
     problemView.appendChild(quoteBlock(item.quote));
 
@@ -284,7 +370,7 @@
       textarea.value = answers[key] || "";
       textarea.addEventListener("input", () => {
         const next = { ...answers, [key]: textarea.value };
-        saveState(cat.id, dateStr, { answers: next });
+        saveState(cat.id, item.id, { answers: next });
       });
       field.appendChild(textarea);
       problemView.appendChild(field);
@@ -295,8 +381,8 @@
       revealArea.appendChild(el("p", { class: "disclaimer" }, "これは唯一の正解ではありません。方向性の異なる2つの回答例を示します。"));
       revealArea.append(...modelAnswerSets(item.modelAnswers));
       revealArea.appendChild(el("div", { class: "explanation" }, item.explanation));
-      revealArea.appendChild(insightField(cat.id, dateStr, saved));
-      saveState(cat.id, dateStr, { revealed: true });
+      revealArea.appendChild(insightField(cat.id, item.id, saved));
+      saveState(cat.id, item.id, { revealed: true });
     };
 
     if (saved.revealed) doReveal();
@@ -304,7 +390,7 @@
     problemView.appendChild(revealArea);
   }
 
-  function renderSingle(cat, item, dateStr, saved) {
+  function renderSingle(cat, item, saved) {
     if (item.constraint) {
       problemView.appendChild(el("p", { class: "prompt-text" }, item.situation));
       problemView.appendChild(el("p", { class: "prompt-text" }, `制約: ${item.constraint}`));
@@ -319,7 +405,7 @@
     const answerField = el("div", { class: "answer-field" }, [el("label", {}, "自分の回答")]);
     const textarea = el("textarea", { rows: "5" });
     textarea.value = saved.answer || "";
-    textarea.addEventListener("input", () => saveState(cat.id, dateStr, { answer: textarea.value }));
+    textarea.addEventListener("input", () => saveState(cat.id, item.id, { answer: textarea.value }));
     answerField.appendChild(textarea);
     problemView.appendChild(answerField);
 
@@ -338,21 +424,13 @@
         ]));
       }
       revealArea.appendChild(el("div", { class: "explanation" }, item.explanation));
-      revealArea.appendChild(insightField(cat.id, dateStr, saved));
-      saveState(cat.id, dateStr, { revealed: true });
+      revealArea.appendChild(insightField(cat.id, item.id, saved));
+      saveState(cat.id, item.id, { revealed: true });
     };
 
     if (saved.revealed) doReveal();
     else problemView.appendChild(revealButton(doReveal));
     problemView.appendChild(revealArea);
-  }
-
-  function itemSummaryText(categoryId, itemId) {
-    const bank = (state.data.banks[categoryId] || []);
-    const item = bank.find((it) => it.id === itemId);
-    if (!item) return "";
-    const raw = item.prompt || item.situation || item.context || item.lens || item.sourceSentence || "";
-    return raw.length > 36 ? raw.slice(0, 36) + "…" : raw;
   }
 
   function answerPreviewText(value) {
@@ -382,19 +460,22 @@
       const answerPreview = answerPreviewText(value);
       if (!value.insight && !answerPreview) continue;
       const rest = key.slice(STORAGE_PREFIX.length);
-      const lastColon = rest.lastIndexOf(":");
-      const categoryId = rest.slice(0, lastColon);
-      const dateStr = rest.slice(lastColon + 1);
+      const sep = rest.indexOf(":");
+      const categoryId = rest.slice(0, sep);
+      const itemId = rest.slice(sep + 1);
       const cat = state.data.categories.find((c) => c.id === categoryId);
+      const bankItem = (state.data.banks[categoryId] || []).find((it) => it.id === itemId);
       entries.push({
-        dateStr,
+        categoryId,
+        itemId,
+        updatedAt: value.updatedAt || "",
         label: cat ? cat.label : categoryId,
         insight: value.insight || "",
         answerPreview,
-        problemSummary: value.itemId ? itemSummaryText(categoryId, value.itemId) : "",
+        problemSummary: bankItem ? itemSummaryText(bankItem) : "",
       });
     }
-    entries.sort((a, b) => (a.dateStr < b.dateStr ? 1 : -1));
+    entries.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
 
     if (entries.length === 0) {
       growthLogList.appendChild(el("p", { class: "hint" }, "まだ記録がありません。問題に回答してみましょう。"));
@@ -403,14 +484,22 @@
 
     for (const entry of entries) {
       const metaText = entry.problemSummary
-        ? `${entry.dateStr}｜${entry.label}｜${entry.problemSummary}`
-        : `${entry.dateStr}｜${entry.label}`;
+        ? `${entry.updatedAt}｜${entry.label}｜${entry.problemSummary}`
+        : `${entry.updatedAt}｜${entry.label}`;
       const children = [el("div", { class: "meta" }, metaText)];
       if (entry.answerPreview) {
         children.push(el("p", { class: "hint" }, `自分の回答: ${entry.answerPreview}`));
       }
       children.push(el("div", {}, entry.insight ? `気づき: ${entry.insight}` : "（気づきメモ未記入）"));
-      growthLogList.appendChild(el("div", { class: "growth-log-item" }, children));
+      const row = el("button", { type: "button", class: "growth-log-item browse-row" }, children);
+      row.addEventListener("click", () => {
+        state.activeCategoryId = entry.categoryId;
+        state.selectedItemId = entry.itemId;
+        state.mode = "problem";
+        renderCategoryNav();
+        renderProblem();
+      });
+      growthLogList.appendChild(row);
     }
   }
 })();
