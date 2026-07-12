@@ -246,9 +246,6 @@
     );
 
     switch (cat.kind) {
-      case "memo":
-        renderMemo(cat, activeItem, saved);
-        break;
       case "checklist":
         renderChecklist(cat, activeItem, saved);
         break;
@@ -290,40 +287,6 @@
       list.appendChild(row);
     }
     problemView.appendChild(list);
-  }
-
-  function renderMemo(cat, item, saved) {
-    problemView.appendChild(el("p", { class: "prompt-text" }, item.prompt));
-    problemView.appendChild(
-      el("ul", { class: "key-points" }, item.keyPoints.map((k) => el("li", {}, k)))
-    );
-
-    const answerField = el("div", { class: "answer-field" }, [el("label", {}, "自分の再現文")]);
-    const textarea = el("textarea", { rows: "8" });
-    textarea.value = saved.answer || "";
-    textarea.addEventListener("input", () => saveState(cat.id, item.id, { answer: textarea.value }));
-    answerField.appendChild(textarea);
-    problemView.appendChild(answerField);
-
-    if (!saved.revealed) {
-      problemView.appendChild(el("p", { class: "disclaimer" }, "原文は「回答例を見る」を押すまで表示されません。先に自分の再現文を書き終えてから開いてください。"));
-    }
-
-    const revealArea = el("div", { class: "reveal-area" }, []);
-
-    const doReveal = () => {
-      revealArea.appendChild(quoteBlock(item.reveal.quote));
-      revealArea.appendChild(el("div", { class: "explanation" }, item.reveal.explanation));
-      revealArea.appendChild(insightField(cat.id, item.id, saved));
-      saveState(cat.id, item.id, { revealed: true });
-    };
-
-    if (saved.revealed) {
-      doReveal();
-    } else {
-      problemView.appendChild(revealButton(doReveal));
-    }
-    problemView.appendChild(revealArea);
   }
 
   function renderChecklist(cat, item, saved) {
