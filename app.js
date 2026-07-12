@@ -8,6 +8,7 @@
     activeCategoryId: null,
     selectedItemId: null, // null = 今日のおすすめを表示
     mode: "problem", // "problem" | "browse"
+    browseFilter: "all", // "all" | "none" | "answered" | "insight"
   };
 
   const categoryNav = document.getElementById("categoryNav");
@@ -108,10 +109,16 @@
     return false;
   }
 
+  function statusKey(saved) {
+    if (saved.insight && saved.insight.trim()) return "insight";
+    if (hasAnyAnswer(saved)) return "answered";
+    return "none";
+  }
+
+  const STATUS_LABELS = { none: "未着手", answered: "回答あり", insight: "気づきメモ済み" };
+
   function statusLabel(saved) {
-    if (saved.insight && saved.insight.trim()) return "気づきメモ済み";
-    if (hasAnyAnswer(saved)) return "回答あり";
-    return "未着手";
+    return STATUS_LABELS[statusKey(saved)];
   }
 
   function el(tag, attrs = {}, children = []) {
@@ -268,9 +275,40 @@
     problemView.appendChild(backRow);
     problemView.appendChild(el("h2", {}, `${cat.label}｜全${bank.length}問`));
 
-    const list = el("div", { class: "growth-log-list" });
-    for (const item of bank) {
+    const entries = bank.map((item) => {
       const saved = loadSaved(cat.id, item.id);
+      return { item, saved, status: statusKey(saved) };
+    });
+    const counts = { all: entries.length, none: 0, answered: 0, insight: 0 };
+    for (const e of entries) counts[e.status]++;
+
+    const FILTERS = [
+      ["all", "すべて"],
+      ["none", "未着手"],
+      ["answered", "回答あり"],
+      ["insight", "メモ済み"],
+    ];
+    const filterRow = el("div", { class: "filter-row" });
+    for (const [key, label] of FILTERS) {
+      const chip = el(
+        "button",
+        { type: "button", class: "category-chip filter-chip", "aria-pressed": String(state.browseFilter === key) },
+        `${label}（${counts[key]}）`
+      );
+      chip.addEventListener("click", () => {
+        state.browseFilter = key;
+        renderProblem();
+      });
+      filterRow.appendChild(chip);
+    }
+    problemView.appendChild(filterRow);
+
+    const visible = entries.filter((e) => state.browseFilter === "all" || e.status === state.browseFilter);
+    const list = el("div", { class: "growth-log-list" });
+    if (visible.length === 0) {
+      list.appendChild(el("p", { class: "hint" }, "この条件に該当する問題はありません。"));
+    }
+    for (const { item, saved } of visible) {
       const isRecommended = item.id === recommendedItemId;
       const metaText = [isRecommended ? "今日のおすすめ" : null, statusLabel(saved)]
         .filter(Boolean)
@@ -299,8 +337,9 @@
       const textarea = el("textarea", { rows: "2" });
       textarea.value = answers[i] || "";
       textarea.addEventListener("input", () => {
-        const next = { ...answers, [i]: textarea.value };
-        saveState(cat.id, item.id, { answers: next });
+        // 共有オブジェクトを直接更新しないと、他の欄の保存済み回答を消してしまう
+        answers[i] = textarea.value;
+        saveState(cat.id, item.id, { answers: { ...answers } });
       });
       field.appendChild(textarea);
       problemView.appendChild(field);
@@ -332,8 +371,9 @@
       const textarea = el("textarea", { rows: "4" });
       textarea.value = answers[key] || "";
       textarea.addEventListener("input", () => {
-        const next = { ...answers, [key]: textarea.value };
-        saveState(cat.id, item.id, { answers: next });
+        // 共有オブジェクトを直接更新しないと、他の欄の保存済み回答を消してしまう
+        answers[key] = textarea.value;
+        saveState(cat.id, item.id, { answers: { ...answers } });
       });
       field.appendChild(textarea);
       problemView.appendChild(field);
@@ -397,14 +437,13 @@
   }
 
   function answerPreviewText(value) {
+    let text = "";
     if (typeof value.answer === "string" && value.answer.trim()) {
-      return value.answer;
+      text = value.answer;
+    } else if (value.answers && typeof value.answers === "object") {
+      text = Object.values(value.answers).filter(Boolean).join(" / ");
     }
-    if (value.answers && typeof value.answers === "object") {
-      const joined = Object.values(value.answers).filter(Boolean).join(" / ");
-      if (joined) return joined;
-    }
-    return "";
+    return text.length > 80 ? text.slice(0, 80) + "…" : text;
   }
 
   function renderGrowthLog() {

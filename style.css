@@ -108,6 +108,19 @@ html, body {
   margin: 8px 0;
 }
 
+.filter-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 0 12px;
+  scrollbar-width: none;
+}
+.filter-row::-webkit-scrollbar { display: none; }
+.filter-chip {
+  font-size: 0.85rem;
+}
+
 .growth-log-item.browse-row {
   display: block;
   width: 100%;
