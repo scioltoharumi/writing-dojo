@@ -66,18 +66,50 @@
     return jst.toISOString().slice(0, 10);
   }
 
-  function daysSinceEpoch(dateStr) {
-    return Math.floor(new Date(dateStr + "T00:00:00Z").getTime() / 86400000);
+  function dailyPickKey(categoryId) {
+    return `wd:daily:${categoryId}`;
   }
 
   function pickRecommendedItem(categoryId) {
     const bank = state.data.banks[categoryId] || [];
     if (bank.length === 0) return null;
     const dateStr = getJSTDateString();
-    // バンクを一巡させるため、日数ベースの周回で「今日のおすすめ」を選ぶ
-    const days = daysSinceEpoch(dateStr);
-    const idx = ((days % bank.length) + bank.length) % bank.length;
-    return { item: bank[idx], dateStr };
+
+    // その日すでに選んだ問題があればそれを使う（日内固定。
+    // 回答中にステータスが変わっても問題が入れ替わらないようにするため）
+    try {
+      const raw = localStorage.getItem(dailyPickKey(categoryId));
+      if (raw) {
+        const pick = JSON.parse(raw);
+        const found = pick.date === dateStr ? bank.find((i) => i.id === pick.itemId) : null;
+        if (found) return { item: found, dateStr };
+      }
+    } catch (err) {
+      /* 壊れたデータは無視して選び直す */
+    }
+
+    // 未着手の問題からランダムに選ぶ。スキップした日があっても未着手が取り残されない
+    const unstarted = bank.filter((i) => statusKey(loadSaved(categoryId, i.id)) === "none");
+    let item;
+    if (unstarted.length > 0) {
+      item = unstarted[Math.floor(Math.random() * unstarted.length)];
+    } else {
+      // 全問着手済みなら、最終更新が最も古い問題（最も寝かせられている問題）を出す
+      item = bank
+        .slice()
+        .sort((a, b) => {
+          const ua = loadSaved(categoryId, a.id).updatedAt || "";
+          const ub = loadSaved(categoryId, b.id).updatedAt || "";
+          return ua < ub ? -1 : ua > ub ? 1 : 0;
+        })[0];
+    }
+
+    try {
+      localStorage.setItem(dailyPickKey(categoryId), JSON.stringify({ date: dateStr, itemId: item.id }));
+    } catch (err) {
+      /* 保存不可でも表示は続行 */
+    }
+    return { item, dateStr };
   }
 
   function storageKey(categoryId, itemId) {
