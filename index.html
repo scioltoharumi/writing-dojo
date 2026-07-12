@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Writing Dojo — 小説執筆力トレーニング</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="app-header">
+  <h1>Writing Dojo</h1>
+  <button id="growthLogToggle" class="ghost-button" type="button">成長記録</button>
+</header>
+
+<nav id="categoryNav" class="category-nav" aria-label="カテゴリ選択"></nav>
+
+<main id="problemView" class="problem-view"></main>
+
+<section id="growthLogView" class="growth-log-view" hidden>
+  <h2>成長記録：過去の回答と気づきメモ</h2>
+  <p class="hint">これまでの回答と、回答例を見た後に記録した「気づきメモ」を、日付・カテゴリ横断で振り返るページです。</p>
+  <div id="growthLogList" class="growth-log-list"></div>
+</section>
+
+<footer class="app-footer">
+  <p>
+    本サイトの一部の設問・引用は『無職転生 〜異世界行ったら本気だす〜』（作: 理不尽な孫の手、
+    <a href="https://ncode.syosetu.com/n9669bk/" target="_blank" rel="noopener">https://ncode.syosetu.com/n9669bk/</a>）
+    を題材にしています。引用範囲についてご指摘があればご連絡ください。
+  </p>
+</footer>
+
+<script src="app.js" defer></script>
+</body>
+</html>
